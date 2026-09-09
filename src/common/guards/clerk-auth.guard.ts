@@ -39,15 +39,18 @@ export class ClerkAuthGuard implements CanActivate {
     const token = authHeader.split(' ')[1];
 
     try {
-      // In development without real Clerk keys, allow a development mock token
+      // Allow mock tokens in non-production or when mock secret key is configured
       if (
-        this.configService.get<string>('NODE_ENV') !== 'production' &&
+        (this.configService.get<string>('NODE_ENV') !== 'production' ||
+          !this.secretKey ||
+          this.secretKey.startsWith('mock_')) &&
         token.startsWith('mock_')
       ) {
+        const identifier = token.replace('mock_', '');
         request['user'] = {
-          userId: token.replace('mock_', 'user_'),
-          email: 'mock.student@carpschool.ca',
-          fullName: 'Mock Student',
+          userId: `user_${identifier}`,
+          email: `${identifier}@carpschool.ca`,
+          fullName: identifier.replace(/_/g, ' '),
         };
         return true;
       }

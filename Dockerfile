@@ -39,6 +39,9 @@ WORKDIR /app
 # Install dumb-init for proper Linux PID 1 signal forwarding and zombie reaping
 RUN apk add --no-cache dumb-init
 
+# Prepare application directory with proper node user permissions for key persistence
+RUN mkdir -p /app/.keys && chown -R node:node /app
+
 # Set production environment
 ENV NODE_ENV=production
 ENV PORT=4000
