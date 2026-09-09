@@ -2,6 +2,8 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as nacl from 'tweetnacl';
 import * as naclUtil from 'tweetnacl-util';
+import * as fs from 'fs';
+import * as path from 'path';
 
 /**
  * CryptoService
@@ -9,9 +11,9 @@ import * as naclUtil from 'tweetnacl-util';
  * Manages the Central Authority's Ed25519 cryptographic keypair and performs
  * high-speed, non-repudiable cryptographic operations:
  * 
- * 1. Generating or loading Central Server's Ed25519 keypair.
+ * 1. Generating or loading Central Server's Ed25519 keypair (env or filesystem).
  * 2. Signing outbound Federation Tickets for users connecting to school servers.
- * 3. Verifying incoming Ed25519 digital signatures from school servers during automated onboarding.
+ * 3. Verifying incoming Ed25519 digital signatures from school servers during automated onboarding and heartbeats.
  */
 @Injectable()
 export class CryptoService implements OnModuleInit {
@@ -25,8 +27,10 @@ export class CryptoService implements OnModuleInit {
   }
 
   /**
-   * Initializes the Ed25519 keypair from environment variables or generates
-   * an ephemeral keypair for development if not provided.
+   * Initializes the Ed25519 keypair:
+   * 1. Check environment variables
+   * 2. Check local keyfile (.keys/central_keypair.json)
+   * 3. Generate keypair and persist to file if possible
    */
   private initializeKeys(): void {
     const privKeyBase64 = this.configService.get<string>('CENTRAL_ED25519_PRIVATE_KEY');
@@ -44,15 +48,51 @@ export class CryptoService implements OnModuleInit {
       }
     }
 
-    // Generate ephemeral keypair for development
+    // Check filesystem key file
+    const keyFilePath = this.configService.get<string>(
+      'CENTRAL_KEY_FILE',
+      path.resolve(process.cwd(), '.keys/central_keypair.json'),
+    );
+
+    try {
+      if (fs.existsSync(keyFilePath)) {
+        const fileContent = fs.readFileSync(keyFilePath, 'utf8');
+        const parsed = JSON.parse(fileContent);
+        if (parsed.publicKey && parsed.privateKey) {
+          const secretKey = naclUtil.decodeBase64(parsed.privateKey);
+          const publicKey = naclUtil.decodeBase64(parsed.publicKey);
+          this.keyPair = { publicKey, secretKey };
+          this.logger.log(`🔐 Central Ed25519 Keypair loaded from file: ${keyFilePath}`);
+          return;
+        }
+      }
+    } catch (fileErr) {
+      this.logger.warn(`Could not read key file at ${keyFilePath}: ${fileErr.message}`);
+    }
+
+    // Generate persistent keypair
     this.keyPair = nacl.sign.keyPair();
     const generatedPub = naclUtil.encodeBase64(this.keyPair.publicKey);
     const generatedPriv = naclUtil.encodeBase64(this.keyPair.secretKey);
-    this.logger.warn(
-      `⚠️  No valid Ed25519 keys found in environment. Generated ephemeral keypair for development.\n` +
-      `   PUBLIC KEY:  ${generatedPub}\n` +
-      `   PRIVATE KEY: ${generatedPriv}`
-    );
+
+    try {
+      const dir = path.dirname(keyFilePath);
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+      }
+      fs.writeFileSync(
+        keyFilePath,
+        JSON.stringify({ publicKey: generatedPub, privateKey: generatedPriv }, null, 2),
+        { encoding: 'utf8', mode: 0o600 },
+      );
+      this.logger.log(`💾 Generated and saved new Central Ed25519 keypair to ${keyFilePath}`);
+    } catch (writeErr) {
+      this.logger.warn(
+        `⚠️  Could not write keypair to ${keyFilePath} (${writeErr.message}). Using ephemeral in-memory keys.`,
+      );
+    }
+
+    this.logger.log(`   CENTRAL PUBLIC KEY:  ${generatedPub}`);
   }
 
   /**

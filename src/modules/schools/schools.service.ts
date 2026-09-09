@@ -8,6 +8,7 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { School, SchoolDocument } from './schemas/school.schema';
 import { OnboardSchoolDto } from './dto/onboard-school.dto';
+import { SchoolHeartbeatDto } from './dto/school-heartbeat.dto';
 import { CreateTicketDto } from './dto/create-ticket.dto';
 import { CryptoService } from '../crypto/crypto.service';
 
@@ -179,6 +180,53 @@ export class SchoolsService {
       schoolBaseUrl: targetBaseUrl,
       isTrusted,
       expiresAt: ticketPackage.expiresAt,
+    };
+  }
+
+  /**
+   * Processes a school heartbeat:
+   * 1. Finds the school in MongoDB
+   * 2. Verifies the Ed25519 digital signature against registered public key
+   * 3. Updates lastHeartbeat timestamp
+   */
+  async recordHeartbeat(
+    dto: SchoolHeartbeatDto,
+    signature: string,
+    rawBody?: string,
+  ): Promise<{ status: string; acknowledgedAt: string }> {
+    const school = await this.schoolModel
+      .findOne({ schoolCode: dto.schoolCode.toLowerCase() })
+      .exec();
+
+    if (!school) {
+      throw new NotFoundException(`School with code "${dto.schoolCode}" not found`);
+    }
+
+    if (!signature) {
+      throw new BadRequestException('Missing x-school-signature header');
+    }
+
+    // Verify signature using raw body if available, or canonical stringified DTO
+    const messageToVerify = rawBody || JSON.stringify(dto);
+    const isValid = this.cryptoService.verifySchoolSignature(
+      messageToVerify,
+      signature,
+      school.ed25519PublicKey,
+    );
+
+    if (!isValid) {
+      throw new BadRequestException('Cryptographic heartbeat signature verification failed');
+    }
+
+    // Update school's heartbeat timestamp in central_db
+    school.lastHeartbeat = new Date();
+    await school.save();
+
+    this.logger.log(`💓 Verified heartbeat from school: ${school.officialName} (${school.schoolCode})`);
+
+    return {
+      status: 'ok',
+      acknowledgedAt: new Date().toISOString(),
     };
   }
 }

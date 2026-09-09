@@ -4,6 +4,7 @@ import {
   Post,
   Body,
   Param,
+  Headers,
   UseGuards,
   HttpCode,
   HttpStatus,
@@ -13,10 +14,12 @@ import {
   ApiOperation,
   ApiResponse,
   ApiBearerAuth,
+  ApiHeader,
 } from '@nestjs/swagger';
 import { SchoolsService } from './schools.service';
 import { OnboardSchoolDto } from './dto/onboard-school.dto';
 import { CreateTicketDto } from './dto/create-ticket.dto';
+import { SchoolHeartbeatDto } from './dto/school-heartbeat.dto';
 import { ClerkAuthGuard } from '../../common/guards/clerk-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 
@@ -83,5 +86,30 @@ export class SchoolsController {
     @Body() dto: CreateTicketDto,
   ) {
     return this.schoolsService.issueFederationTicket(user, dto);
+  }
+
+  /**
+   * Verified School Server Heartbeat
+   */
+  @Post('heartbeat')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'School server heartbeat ping',
+    description:
+      'Receives heartbeat pings from registered school servers. Verifies authenticity using the school server Ed25519 signature in x-school-signature header.',
+  })
+  @ApiHeader({
+    name: 'x-school-signature',
+    description: 'Ed25519 digital signature of the heartbeat payload',
+    required: true,
+  })
+  @ApiResponse({ status: 200, description: 'Heartbeat acknowledged' })
+  @ApiResponse({ status: 400, description: 'Invalid signature or payload' })
+  @ApiResponse({ status: 404, description: 'School not found' })
+  async heartbeat(
+    @Body() dto: SchoolHeartbeatDto,
+    @Headers('x-school-signature') signature: string,
+  ) {
+    return this.schoolsService.recordHeartbeat(dto, signature);
   }
 }

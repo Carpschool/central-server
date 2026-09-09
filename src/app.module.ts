@@ -5,6 +5,7 @@ import { CryptoModule } from './modules/crypto/crypto.module';
 import { SchoolsModule } from './modules/schools/schools.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { EmailModule } from './modules/email/email.module';
+import { MetaModule } from './modules/meta/meta.module';
 
 /**
  * AppModule
@@ -35,6 +36,7 @@ import { EmailModule } from './modules/email/email.module';
 
     // Core domain modules
     CryptoModule,
+    MetaModule,
     SchoolsModule,
     AuthModule,
     EmailModule,

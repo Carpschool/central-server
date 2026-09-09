@@ -6,7 +6,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { createClerkClient } from '@clerk/backend';
+import { createClerkClient, verifyToken } from '@clerk/backend';
 
 /**
  * ClerkAuthGuard
@@ -21,10 +21,11 @@ import { createClerkClient } from '@clerk/backend';
 export class ClerkAuthGuard implements CanActivate {
   private readonly logger = new Logger(ClerkAuthGuard.name);
   private clerkClient: ReturnType<typeof createClerkClient>;
+  private secretKey?: string;
 
   constructor(private readonly configService: ConfigService) {
-    const secretKey = this.configService.get<string>('CLERK_SECRET_KEY');
-    this.clerkClient = createClerkClient({ secretKey });
+    this.secretKey = this.configService.get<string>('CLERK_SECRET_KEY');
+    this.clerkClient = createClerkClient({ secretKey: this.secretKey });
   }
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -52,7 +53,9 @@ export class ClerkAuthGuard implements CanActivate {
       }
 
       // Verify token with Clerk Backend SDK
-      const verifiedToken = await this.clerkClient.verifyToken(token);
+      const verifiedToken = await verifyToken(token, {
+        secretKey: this.secretKey,
+      });
 
       if (!verifiedToken || !verifiedToken.sub) {
         throw new UnauthorizedException('Invalid or expired Clerk token');

@@ -25,7 +25,26 @@ In development (`NODE_ENV != 'production'`), mock tokens starting with `mock_` (
 
 ## Endpoints
 
-### 1. Schools Directory & Trust
+### 1. Central Authority Metadata & Ed25519 Signature
+
+#### `GET /api/v1/meta`
+* **Description**: Returns the Central Authority Server identity and 32-byte Ed25519 public key. Every response is cryptographically signed with Central Server's private key in the `x-central-signature` HTTP response header. School servers and clients use this to verify that the Central Authority is authentic.
+* **Response Headers**:
+  ```
+  x-central-signature: <base64_ed25519_signature>
+  ```
+* **Response Body (200 OK)**:
+  ```json
+  {
+    "service": "carpschool-central",
+    "version": "2.0.0",
+    "ed25519PublicKey": "YOUR_BASE64_ED25519_PUBLIC_KEY",
+    "timestamp": "2026-09-08T23:30:00.000Z",
+    "signature": "base64_ed25519_signature"
+  }
+  ```
+
+### 2. Schools Directory & Trust
 
 #### `POST /api/v1/schools/admin/onboard`
 * **Description**: Automated admin onboarding for school servers. The admin supplies only the school server's Base URL and its 32-byte Ed25519 public key. Central Server queries the school server's `/api/v1/meta` endpoint, verifies the cryptographic signature from header `x-school-signature`, and automatically populates the school metadata.
@@ -94,9 +113,33 @@ In development (`NODE_ENV != 'production'`), mock tokens starting with `mock_` (
   }
   ```
 
+#### `POST /api/v1/schools/heartbeat`
+* **Description**: Receives periodic heartbeat pings from registered school servers to maintain active status in the central directory. Authenticity is verified using the school server's Ed25519 digital signature.
+* **Request Headers**:
+  ```
+  x-school-signature: <base64_ed25519_signature>
+  ```
+* **Request Body**:
+  ```json
+  {
+    "schoolCode": "ubc",
+    "timestamp": "2026-09-08T23:30:00.000Z",
+    "activeCarpools": 12,
+    "activeStudents": 48,
+    "version": "2.0.0"
+  }
+  ```
+* **Response (200 OK)**:
+  ```json
+  {
+    "status": "ok",
+    "acknowledgedAt": "2026-09-08T23:30:01.000Z"
+  }
+  ```
+
 ---
 
-### 2. Global Identity & Profile Sync
+### 3. Global Identity & Profile Sync
 
 #### `POST /api/v1/auth/sync`
 * **Auth Required**: `Bearer <clerk_token>`
