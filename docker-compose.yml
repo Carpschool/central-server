@@ -1,0 +1,58 @@
+services:
+  # ----------------------------------------------------------------------------
+  # Central Authority Server (NestJS)
+  # ----------------------------------------------------------------------------
+  central-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: carpschool-central-app
+    restart: unless-stopped
+    ports:
+      - "4000:4000"
+    environment:
+      - NODE_ENV=production
+      - PORT=4000
+      - MONGO_URI=mongodb://central-mongo:27017/central_db
+      - CLERK_SECRET_KEY=${CLERK_SECRET_KEY}
+      - CLERK_PUBLISHABLE_KEY=${CLERK_PUBLISHABLE_KEY}
+      - CENTRAL_ED25519_PRIVATE_KEY=${CENTRAL_ED25519_PRIVATE_KEY}
+      - CENTRAL_ED25519_PUBLIC_KEY=${CENTRAL_ED25519_PUBLIC_KEY}
+      - EMAIL_PROVIDER=${EMAIL_PROVIDER:-mock}
+    depends_on:
+      central-mongo:
+        condition: service_healthy
+    networks:
+      - central_internal_network
+
+  # ----------------------------------------------------------------------------
+  # Isolated MongoDB Instance for Central Authority Server
+  # Security: No authentication, ZERO exposed host ports, internal network only.
+  # ----------------------------------------------------------------------------
+  central-mongo:
+    image: mongo:7.0
+    container_name: carpschool-central-mongo
+    restart: unless-stopped
+    # CRITICAL: No 'ports' directive! Completely unexposed to host and outside world.
+    volumes:
+      - central_mongo_data:/data/db
+    networks:
+      - central_internal_network
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+# ------------------------------------------------------------------------------
+# Isolated Internal Network: Database is completely unreachable from host/outside
+# ------------------------------------------------------------------------------
+networks:
+  central_internal_network:
+    driver: bridge
+    name: carpschool_central_internal_net
+
+volumes:
+  central_mongo_data:
+    name: carpschool_central_mongo_data
