@@ -20,8 +20,12 @@ export class User {
   @Prop({ default: null })
   phoneNumber?: string;
 
+  /**
+   * Admin flag determined strictly by Clerk private metadata.
+   * Default is false for all registered accounts.
+   */
   @Prop({ default: false })
-  isCentralEmailVerified: boolean;
+  admin: boolean;
 
   @Prop({ default: null })
   avatarUrl?: string;

@@ -1,5 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getModelToken } from '@nestjs/mongoose';
+import { ConfigService } from '@nestjs/config';
 import { AuthService } from './auth.service';
 import { User } from './schemas/user.schema';
 
@@ -29,6 +30,12 @@ describe('AuthService', () => {
         {
           provide: getModelToken(User.name),
           useValue: mockUserModel,
+        },
+        {
+          provide: ConfigService,
+          useValue: {
+            get: jest.fn().mockReturnValue(null),
+          },
         },
       ],
     }).compile();

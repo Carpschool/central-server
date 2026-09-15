@@ -21,6 +21,7 @@ import { OnboardSchoolDto } from './dto/onboard-school.dto';
 import { CreateTicketDto } from './dto/create-ticket.dto';
 import { SchoolHeartbeatDto } from './dto/school-heartbeat.dto';
 import { ClerkAuthGuard } from '../../common/guards/clerk-auth.guard';
+import { AdminGuard } from '../../common/guards/admin.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 
 @ApiTags('schools')
@@ -32,13 +33,16 @@ export class SchoolsController {
    * Admin automated school onboarding
    */
   @Post('admin/onboard')
+  @UseGuards(ClerkAuthGuard, AdminGuard)
+  @ApiBearerAuth()
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({
     summary: 'Automated school onboarding by admin',
     description:
-      'Takes a school server Base URL and Ed25519 Public Key, fetches /api/v1/meta from the school, verifies the signature, and auto-populates metadata.',
+      'Takes a school server Base URL and Ed25519 Public Key, fetches /api/v1/meta from the school, verifies the signature, and auto-populates metadata. Requires admin privilege (Clerk privateMetadata.admin = true).',
   })
   @ApiResponse({ status: 201, description: 'School verified and registered' })
+  @ApiResponse({ status: 403, description: 'Forbidden: Admin privileges required' })
   @ApiResponse({ status: 400, description: 'Signature or metadata verification failed' })
   async onboardSchool(@Body() dto: OnboardSchoolDto) {
     return this.schoolsService.onboardSchool(dto);
