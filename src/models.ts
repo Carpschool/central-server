@@ -7,6 +7,8 @@ export const SchoolSchema = new Schema(
     baseUrl: String,
     publicKey: String,
     trusted: { type: Boolean, default: false },
+    /** Network admin on/off switch. Every registered school is trusted; disabled ones are hidden and get no tickets. */
+    enabled: { type: Boolean, default: true },
     lastHeartbeat: Date,
     metaSyncedAt: Date,
   },
@@ -22,6 +24,8 @@ export const UserSchema = new Schema(
     name: String,
     avatar: String,
     deleted: Boolean,
+    /** School _ids this user has opened a session with (recorded when a ticket is issued). */
+    schools: { type: [String], default: [] },
     eventTimestamp: Number,
   },
   { timestamps: true },

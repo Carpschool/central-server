@@ -112,35 +112,6 @@ export class RegistryService {
       throw e;
     }
   }
-  async update(
-    code: string,
-    patch: { name?: string; domains?: string[]; baseUrl?: string },
-  ) {
-    const school = await this.schools.findOne({ schoolCode: code });
-    if (!school) throw new NotFoundException();
-    const set: any = {};
-    if (patch.name !== undefined) set.name = patch.name.trim();
-    if (patch.domains !== undefined)
-      set.domains = [...new Set(patch.domains.map((d) => d.toLowerCase()))];
-    if (patch.baseUrl !== undefined) {
-      const { meta, origin } = await this.verifyOrigin(patch.baseUrl);
-      if (meta.schoolCode !== school.schoolCode || meta.publicKey !== school.publicKey)
-        throw new BadRequestException(
-          "New baseUrl must serve the same school code and signing key",
-        );
-      set.baseUrl = origin.origin;
-    }
-    return this.schools.findOneAndUpdate({ schoolCode: code }, set, { new: true });
-  }
-  async trust(code: string, trusted: boolean) {
-    const school = await this.schools.findOneAndUpdate(
-      { schoolCode: code },
-      { trusted },
-      { new: true },
-    );
-    if (!school) throw new NotFoundException();
-    return school;
-  }
   async heartbeat(dto: HeartbeatDto) {
     if (Math.abs(Date.now() - dto.timestamp) > 60000)
       throw new UnauthorizedException(
