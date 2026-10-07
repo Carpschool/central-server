@@ -14,14 +14,15 @@ import {
   BadRequestException,
 } from "@nestjs/common";
 import { ApiBearerAuth, ApiTags } from "@nestjs/swagger";
+import { Throttle } from "@nestjs/throttler";
 import { InjectModel } from "@nestjs/mongoose";
 import { Model } from "mongoose";
 import { Webhook } from "svix";
-import { required } from "./config";
+import { SettingsService } from "./settings";
 import { ClerkGuard, AdminGuard } from "./auth";
 import { SigningService } from "./security";
 import { RegistryService } from "./registry";
-import { HeartbeatDto, OnboardDto, TicketDto, TrustDto, SchoolUpdateDto, AdminFlagDto } from "./dto";
+import { HeartbeatDto, OnboardDto, TicketDto, TrustDto, SchoolUpdateDto, AdminFlagDto, ClaimDto, CentralSettingsDto } from "./dto";
 import { AdminsService } from "./admins";
 @ApiTags("central")
 @Controller()
@@ -30,7 +31,27 @@ export class CentralController {
     private registry: RegistryService,
     private signing: SigningService,
     private admins: AdminsService,
+    private settings: SettingsService,
   ) {}
+  @Get("admin/settings")
+  @ApiBearerAuth()
+  @UseGuards(ClerkGuard, AdminGuard)
+  getSettings() {
+    return this.settings.view();
+  }
+  @Put("admin/settings")
+  @ApiBearerAuth()
+  @UseGuards(ClerkGuard, AdminGuard)
+  putSettings(@Body() dto: CentralSettingsDto) {
+    return this.settings.update(dto);
+  }
+  @Post("admin/schools/claim")
+  @ApiBearerAuth()
+  @UseGuards(ClerkGuard, AdminGuard)
+  @Throttle({ default: { ttl: 600000, limit: 10 } })
+  claim(@Body() dto: ClaimDto) {
+    return this.registry.claim(dto.baseUrl, dto.code, dto.schoolCode, dto.name);
+  }
   @Get("health") health() {
     return { ok: true };
   }
@@ -111,11 +132,14 @@ export class WebhookController {
   constructor(
     @InjectModel("User") private users: Model<any>,
     @InjectModel("Replay") private replay: Model<any>,
+    private settings: SettingsService,
   ) {}
   @Post("clerk") async clerk(@Req() req: any) {
     let event: any;
     try {
-      event = new Webhook(required("CLERK_WEBHOOK_SECRET")).verify(
+      const secret = (await this.settings.get()).webhookSecret;
+      if (!secret) throw new Error("no webhook secret");
+      event = new Webhook(secret).verify(
         req.rawBody,
         {
           "svix-id": req.headers["svix-id"],

@@ -8,6 +8,7 @@ export const SchoolSchema = new Schema(
     publicKey: String,
     trusted: { type: Boolean, default: false },
     lastHeartbeat: Date,
+    metaSyncedAt: Date,
   },
   { timestamps: true },
 );

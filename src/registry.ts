@@ -9,13 +9,53 @@ import { InjectModel } from "@nestjs/mongoose";
 import { Model } from "mongoose";
 import { randomBytes } from "node:crypto";
 import { HeartbeatDto } from "./dto";
-import { publicJson, schoolKey, validSignature } from "./security";
+import { publicJson, schoolKey, validSignature, SigningService } from "./security";
 @Injectable()
 export class RegistryService {
   constructor(
     @InjectModel("School") public schools: Model<any>,
     @InjectModel("Replay") private replay: Model<any>,
+    private signing: SigningService,
   ) {}
+  /**
+   * "Add school": a fresh school server logs a one-time 7-hex setup code. We send it the code plus a
+   * short-lived assertion signed by our JWKS key (aud carpschool-setup, nonce). The school verifies
+   * it against our JWKS, pins us, stores code/url, and returns its public key + a signature over the
+   * nonce, which we verify before registering it trusted with that key pinned.
+   */
+  async claim(baseUrl: string, code: string, schoolCode: string, name: string) {
+    const origin = new URL(baseUrl);
+    if (origin.pathname !== "/" || origin.search || origin.hash)
+      throw new BadRequestException("School URL must be an origin");
+    if (await this.schools.exists({ $or: [{ schoolCode }, { baseUrl: origin.origin }] }))
+      throw new ConflictException("School code or URL already registered");
+    const nonce = randomBytes(32).toString("base64url");
+    const assertion = await this.signing.setupAssertion(schoolCode, origin.origin, nonce, name.trim());
+    const r = await publicJson(new URL("/setup/claim", origin), { code: code.toLowerCase(), assertion, nonce });
+    if (r?.schoolCode !== schoolCode || typeof r.publicKey !== "string" || r.publicKey.length > 2048)
+      throw new BadRequestException("Unexpected claim response");
+    try { schoolKey(r.publicKey); } catch { throw new BadRequestException("Invalid Ed25519 key"); }
+    if (!validSignature(r.publicKey, nonce, r.signature))
+      throw new UnauthorizedException("School did not prove its key");
+    try {
+      return await this.schools.create({ schoolCode, name: name.trim(), domains: [], publicKey: r.publicKey, baseUrl: origin.origin, trusted: true });
+    } catch (e) {
+      if (e.code === 11000) throw new ConflictException("School already registered");
+      throw e;
+    }
+  }
+  /** Pull name/plain domains from a school's signed-key metadata (same pinned key only). */
+  async syncMeta(school: any) {
+    try {
+      const meta = await publicJson(new URL("/.well-known/carpschool.json", school.baseUrl));
+      if (meta.schoolCode !== school.schoolCode || meta.publicKey?.trim() !== school.publicKey?.trim()) return;
+      const set: any = { metaSyncedAt: new Date() };
+      if (typeof meta.name === "string" && meta.name.trim() && meta.name !== "Unconfigured school" && meta.name.length <= 200) set.name = meta.name.trim();
+      if (Array.isArray(meta.domains) && meta.domains.length <= 30 && meta.domains.every((d: any) => typeof d === "string" && /^(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?[.])+[a-z]{2,63}$/.test(d)))
+        set.domains = meta.domains;
+      await this.schools.updateOne({ _id: school._id }, set);
+    } catch {}
+  }
   /** Fetch + validate school metadata and prove key possession via signed challenge. */
   async verifyOrigin(baseUrl: string) {
     const origin = new URL(baseUrl);
@@ -136,6 +176,8 @@ export class RegistryService {
       { _id: school._id, trusted: true },
       { lastHeartbeat: new Date() },
     );
+    // School admins edit name/domains on the school; refresh our copy at most every 5 min.
+    if (!school.metaSyncedAt || Date.now() - school.metaSyncedAt.getTime() > 300000) void this.syncMeta(school);
     return { ok: true };
   }
 }

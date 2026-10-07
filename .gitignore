@@ -28,3 +28,4 @@ logs
 coverage/
 *.pem
 API_NOTES.md
+/data

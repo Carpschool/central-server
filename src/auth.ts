@@ -7,17 +7,17 @@ import {
 } from "@nestjs/common";
 import { createClerkClient, verifyToken } from "@clerk/backend";
 import { required } from "./config";
+import { SettingsService } from "./settings";
 @Injectable()
 export class IdentityService {
+  constructor(private settings: SettingsService) {}
   client = createClerkClient({ secretKey: required("CLERK_SECRET_KEY") });
   async authenticate(header?: string) {
     if (!header?.startsWith("Bearer ")) throw new UnauthorizedException();
     try {
       const claims = await verifyToken(header.slice(7), {
         secretKey: required("CLERK_SECRET_KEY"),
-        authorizedParties: required("CLERK_AUTHORIZED_PARTIES")
-          .split(",")
-          .map((s) => s.trim()),
+        authorizedParties: (await this.settings.get()).corsOrigins,
       });
       if (!claims.sub || !claims.sid) throw new Error("Not a session token");
       return await this.client.users.getUser(claims.sub);

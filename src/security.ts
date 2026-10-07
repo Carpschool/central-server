@@ -5,12 +5,13 @@ import {
   randomUUID,
   verify,
 } from "node:crypto";
-import { readFileSync, statSync } from "node:fs";
+import { generateKeyPairSync } from "node:crypto";
 import { lookup } from "node:dns/promises";
 import { request } from "node:https";
 import * as ipaddr from "ipaddr.js";
-import { exportJWK, SignJWT } from "jose";
-import { required } from "./config";
+import { calculateJwkThumbprint, exportJWK, SignJWT } from "jose";
+import { persisted } from "./config";
+import { SettingsService } from "./settings";
 
 export function publicAddress(address: string): boolean {
   try {
@@ -40,7 +41,8 @@ export function validSignature(pem: string, data: string, signature: string) {
 }
 // Resolve once, reject EVERY non-public result and pin the TLS socket to that address.
 // No redirects, proxy environment variables, or second DNS resolution are allowed.
-export async function publicJson(url: URL): Promise<any> {
+export async function publicJson(url: URL, body?: unknown): Promise<any> {
+  const payload = body === undefined ? undefined : Buffer.from(JSON.stringify(body));
   if (
     url.protocol !== "https:" ||
     url.username ||
@@ -56,16 +58,23 @@ export async function publicJson(url: URL): Promise<any> {
     const req = request(
       url,
       {
-        method: "GET",
+        method: payload ? "POST" : "GET",
         agent: false,
         lookup: (_host, opts: any, cb: any) =>
           opts?.all ? cb(null, [pinned]) : cb(null, pinned.address, pinned.family),
-        headers: { Accept: "application/json" },
+        headers: payload
+          ? { Accept: "application/json", "Content-Type": "application/json", "Content-Length": payload.length }
+          : { Accept: "application/json" },
       },
       (res) => {
-        if (res.statusCode !== 200) {
-          res.resume();
-          reject(new BadRequestException("Metadata request failed"));
+        if (res.statusCode !== 200 && !(payload && res.statusCode === 201)) {
+          let text = "";
+          res.on("data", (c: Buffer) => { if (text.length < 2000) text += c; });
+          res.on("end", () => {
+            let msg = "School request failed (" + res.statusCode + ")";
+            try { const m = JSON.parse(text).message; if (typeof m === "string") msg = "School: " + m.slice(0, 300); } catch {}
+            reject(new BadRequestException(msg));
+          });
           return;
         }
         let size = 0;
@@ -96,50 +105,44 @@ export async function publicJson(url: URL): Promise<any> {
     req.on("error", () =>
       reject(new BadRequestException("School HTTPS unavailable")),
     );
-    req.end();
+    req.end(payload);
   });
 }
 @Injectable()
 export class SigningService implements OnModuleInit {
   private key: ReturnType<typeof createPrivateKey>;
   private jwk: any;
+  constructor(private settings: SettingsService) {}
   async onModuleInit() {
-    const path = required("SIGNING_KEY_FILE");
-    if ((statSync(path).mode & 0o077) !== 0)
-      throw new Error("Signing key file must be owner-only (chmod 600)");
-    this.key = createPrivateKey(readFileSync(path));
+    // Persistent Ed25519 key on the data volume; generated on first boot, never from env.
+    this.key = createPrivateKey(
+      persisted("signing.pem", () =>
+        generateKeyPairSync("ed25519").privateKey.export({ type: "pkcs8", format: "pem" }) as string,
+      ),
+    );
     if (this.key.asymmetricKeyType !== "ed25519")
-      throw new Error("Signing key must be Ed25519 PKCS8 PEM");
-    this.jwk = {
-      ...(await exportJWK(createPublicKey(this.key))),
-      kid: required("SIGNING_KEY_ID"),
-      alg: "EdDSA",
-      use: "sig",
-    };
+      throw new Error("data/signing.pem must be an Ed25519 PKCS8 PEM");
+    const pub = await exportJWK(createPublicKey(this.key));
+    this.jwk = { ...pub, kid: (await calculateJwkThumbprint(pub)).slice(0, 16), alg: "EdDSA", use: "sig" };
   }
   jwks() {
     return { keys: [this.jwk] };
   }
-  async issue(
-    sub: string,
-    schoolCode: string,
-    schoolAdmin: boolean,
-    avatar: string,
-    name: string,
-  ) {
-    const ticket = await new SignJWT({ schoolAdmin, avatar, name })
-      .setProtectedHeader({
-        alg: "EdDSA",
-        kid: required("SIGNING_KEY_ID"),
-        typ: "JWT",
-      })
-      .setSubject(sub)
-      .setAudience(schoolCode)
-      .setIssuer(required("CENTRAL_ISSUER"))
+  async sign(claims: Record<string, unknown>, audience: string, expires: string) {
+    return new SignJWT(claims)
+      .setProtectedHeader({ alg: "EdDSA", kid: this.jwk.kid, typ: "JWT" })
+      .setAudience(audience)
+      .setIssuer(await this.settings.issuer())
       .setIssuedAt()
-      .setExpirationTime("15m")
-      .setJti(randomUUID())
-      .sign(this.key);
+      .setExpirationTime(expires)
+      .setJti(randomUUID());
+  }
+  async issue(sub: string, schoolCode: string, schoolAdmin: boolean, avatar: string, name: string) {
+    const ticket = await (await this.sign({ schoolAdmin, avatar, name }, schoolCode, "15m")).setSubject(sub).sign(this.key);
     return { ticket, expiresIn: 900 };
+  }
+  /** One-time setup assertion for a school's /setup/claim. */
+  async setupAssertion(schoolCode: string, publicUrl: string, nonce: string, name: string) {
+    return (await this.sign({ schoolCode, publicUrl, nonce, name }, "carpschool-setup", "5m")).sign(this.key);
   }
 }
