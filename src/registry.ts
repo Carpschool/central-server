@@ -31,7 +31,6 @@ export class RegistryService {
       !meta.name.trim() ||
       meta.name.length > 200 ||
       !Array.isArray(meta.domains) ||
-      !meta.domains.length ||
       meta.domains.length > 30 ||
       meta.domains.some(
         (d: any) =>
