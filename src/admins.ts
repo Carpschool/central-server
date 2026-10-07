@@ -50,17 +50,13 @@ export class AdminsService {
     const r: any = await this.users.list(query?.slice(0, 100));
     return (r.data ?? r).map(view);
   }
-  async setCentral(actor: string, id: string, admin: boolean) {
-    if (actor === id && !admin) throw new BadRequestException("You cannot remove your own central admin");
-    const u: any = await this.load(id);
-    const m = normalize(u.privateMetadata);
-    return view(await this.users.setPrivate(id, { ...u.privateMetadata, ...m, admin }));
-  }
+  // Central (network) admin is changed ONLY in the Clerk dashboard; no API mutates privateMetadata.admin.
   async setSchool(id: string, schoolId: string, admin: boolean) {
     const u: any = await this.load(id);
     const m = normalize(u.privateMetadata);
     if (admin) m.school[schoolId] = { admin: true };
     else delete m.school[schoolId];
-    return view(await this.users.setPrivate(id, { ...u.privateMetadata, ...m }));
+    // only the school map is written; privateMetadata.admin is left exactly as Clerk has it
+    return view(await this.users.setPrivate(id, { ...u.privateMetadata, school: m.school }));
   }
 }

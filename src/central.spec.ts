@@ -120,21 +120,22 @@ describe("central trust boundary", () => {
     it("non-admins cannot manage users or schools", async () => {
       identity.authenticate.mockResolvedValue({ id: "user_x", privateMetadata: { admin: "true", school: {} } });
       await H().get("/admin/users").expect(403);
-      await H().put("/admin/users/user_targetBBBBBBBB/admin").send({ admin: true }).expect(403);
-      await H().put(`/admin/users/user_targetBBBBBBBB/schools/${school._id}/admin`).send({ admin: true }).expect(403);
+            await H().put(`/admin/users/user_targetBBBBBBBB/schools/${school._id}/admin`).send({ admin: true }).expect(403);
       await H().patch("/admin/schools/SENTINEL").send({ name: "Pwned" }).expect(403);
       expect(store.user_targetBBBBBBBB.privateMetadata.admin).toBeUndefined();
     });
-    it("grants and revokes central admin, cannot self-demote", async () => {
+    it("has no API to grant or revoke central admin (Clerk dashboard only)", async () => {
       asAdmin();
-      const r = await H().put("/admin/users/user_targetBBBBBBBB/admin").send({ admin: true }).expect(200);
-      expect(r.body.admin).toBe(true);
-      expect(store.user_targetBBBBBBBB.privateMetadata).toEqual({ keep: 1, admin: true, school: {} });
-      await H().put("/admin/users/user_targetBBBBBBBB/admin").send({ admin: false }).expect(200);
-      expect(store.user_targetBBBBBBBB.privateMetadata.admin).toBe(false);
-      await H().put("/admin/users/user_adminAAAAAAAA/admin").send({ admin: false }).expect(400);
-      await H().put("/admin/users/user_targetBBBBBBBB/admin").send({ admin: "yes" }).expect(400);
-      await H().put("/admin/users/user_missingCCCCCCCC/admin").send({ admin: true }).expect(404);
+      await H().put("/admin/users/user_targetBBBBBBBB/admin").send({ admin: true }).expect(404);
+      await H().patch("/admin/users/user_targetBBBBBBBB").send({ admin: true }).expect(404);
+      expect(store.user_targetBBBBBBBB.privateMetadata.admin).toBeUndefined();
+    });
+    it("school admin assignment never touches central admin flag", async () => {
+      asAdmin();
+      await H().put(`/admin/users/user_targetBBBBBBBB/schools/${school._id}/admin`).send({ admin: true, centralAdmin: true }).expect(400);
+      await H().put(`/admin/users/user_targetBBBBBBBB/schools/${school._id}/admin`).send({ admin: true }).expect(200);
+      expect(store.user_targetBBBBBBBB.privateMetadata.admin).toBeUndefined();
+      await H().put(`/admin/users/user_targetBBBBBBBB/schools/${school._id}/admin`).send({ admin: false }).expect(200);
     });
     it("assigns and removes school admin keyed by school id", async () => {
       asAdmin();
