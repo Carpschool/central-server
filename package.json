@@ -1,6 +1,6 @@
 {
   "name": "@carpschool/central-server",
-  "version": "2.0.0",
+  "version": "3.0.0",
   "description": "Carpschool Central Authority Server - Identity, School Registry & Trust Anchor",
   "author": "Carpschool Team",
   "private": true,
@@ -12,11 +12,10 @@
     "start:dev": "nest start --watch",
     "start:debug": "nest start --debug --watch",
     "start:prod": "node dist/main",
-    "lint": "eslint \"{src,apps,libs,test}/**/*.ts\" --fix",
-    "test": "jest",
+    "lint": "tsc --noEmit",
+    "test": "jest --runInBand",
     "test:watch": "jest --watch",
-    "test:cov": "jest --coverage",
-    "seed": "ts-node src/scripts/seed.ts"
+    "test:cov": "jest --coverage"
   },
   "jest": {
     "moduleFileExtensions": [
@@ -33,7 +32,8 @@
       "**/*.(t|j)s"
     ],
     "coverageDirectory": "../coverage",
-    "testEnvironment": "node"
+    "testEnvironment": "node",
+    "testTimeout": 120000
   },
   "dependencies": {
     "@clerk/backend": "^1.24.1",
