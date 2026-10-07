@@ -18,8 +18,8 @@ export class OnboardDto {
   @MaxLength(2048)
   baseUrl: string;
 }
-export class TrustDto {
-  @ApiProperty() @IsBoolean() trusted: boolean;
+export class EnabledDto {
+  @ApiProperty() @IsBoolean() enabled: boolean;
 }
 export class TicketDto {
   @ApiProperty()

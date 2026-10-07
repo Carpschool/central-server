@@ -14,6 +14,9 @@ export class ClerkUsers {
   list(query?: string) {
     return this.client.users.getUserList({ query: query || undefined, limit: 25, orderBy: "-created_at" });
   }
+  byIds(ids: string[]) {
+    return this.client.users.getUserList({ userId: ids, limit: 100 });
+  }
   setPrivate(id: string, privateMetadata: any) {
     return this.client.users.updateUser(id, { privateMetadata });
   }
@@ -49,6 +52,17 @@ export class AdminsService {
   async list(query?: string) {
     const r: any = await this.users.list(query?.slice(0, 100));
     return (r.data ?? r).map(view);
+  }
+  async byIds(ids: string[]) {
+    const out: any[] = [];
+    for (let i = 0; i < ids.length; i += 100) {
+      const r: any = await this.users.byIds(ids.slice(i, i + 100));
+      out.push(...(r.data ?? r).map(view));
+    }
+    return out;
+  }
+  async one(id: string) {
+    return view(await this.load(id));
   }
   // Central (network) admin is changed ONLY in the Clerk dashboard; no API mutates privateMetadata.admin.
   async setSchool(id: string, schoolId: string, admin: boolean) {

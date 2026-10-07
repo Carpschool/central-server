@@ -37,6 +37,7 @@ describe("central trust boundary", () => {
       return store[id];
     },
     list: async () => ({ data: Object.values(store) }),
+    byIds: async (ids: string[]) => ({ data: ids.filter((i) => store[i]).map((i) => store[i]) }),
     setPrivate: async (id: string, pm: any) => ((store[id].privateMetadata = pm), store[id]),
   };
   beforeAll(async () => {
@@ -118,7 +119,9 @@ describe("central trust boundary", () => {
       identity.authenticate.mockResolvedValue({ id: "user_x", privateMetadata: { admin: "true", school: {} } });
       await H().get("/admin/users").expect(403);
             await H().put(`/admin/users/user_targetBBBBBBBB/schools/${school._id}/admin`).send({ admin: true }).expect(403);
-      await H().patch("/admin/schools/SENTINEL").send({ name: "Pwned" }).expect(403);
+      await H().patch("/admin/schools/SENTINEL/enabled").send({ enabled: false }).expect(403);
+      await H().get("/admin/schools/SENTINEL/users").expect(403);
+      await H().get("/admin/users/user_targetBBBBBBBB").expect(403);
       expect(store.user_targetBBBBBBBB.privateMetadata.admin).toBeUndefined();
     });
     it("has no API to grant or revoke central admin (Clerk dashboard only)", async () => {
@@ -146,19 +149,31 @@ describe("central trust boundary", () => {
       const list = await H().get("/admin/users?q=Tg").expect(200);
       expect(list.body.find((u: any) => u.id === "user_targetBBBBBBBB")).toBeTruthy();
     });
-    it("edits school name/domains with validation", async () => {
+    it("network admin can enable/disable schools but not edit school settings", async () => {
       asAdmin();
-      const r = await H().patch("/admin/schools/SENTINEL").send({ name: "Sentinel Secondary", domains: ["EDU.example", "edu.example"] }).expect(200);
-      expect(r.body.name).toBe("Sentinel Secondary");
-      expect(r.body.domains).toEqual(["edu.example"]);
-      await H().patch("/admin/schools/SENTINEL").send({ domains: ["bad domain"] }).expect(400);
-      await H().patch("/admin/schools/SENTINEL").send({ baseUrl: "http://insecure.example" }).expect(400);
-      await H().patch("/admin/schools/SENTINEL").send({ trusted: false }).expect(400);
-      await H().patch("/admin/schools/NOPE").send({ name: "x y" }).expect(404);
-      await H().patch("/admin/schools/SENTINEL/trust").send({ trusted: false }).expect(200);
+      await H().patch("/admin/schools/SENTINEL").send({ name: "Pwned" }).expect(404);
+      await H().patch("/admin/schools/SENTINEL/trust").send({ trusted: false }).expect(404);
+      await H().patch("/admin/schools/SENTINEL/enabled").send({ enabled: "no" }).expect(400);
+      await H().patch("/admin/schools/NOPE/enabled").send({ enabled: false }).expect(404);
+      await H().patch("/admin/schools/SENTINEL/enabled").send({ enabled: false }).expect(200);
       expect((await H().get("/schools").expect(200)).body.length).toBe(0);
-      await H().patch("/admin/schools/SENTINEL/trust").send({ trusted: true }).expect(200);
-      await H().patch("/admin/schools/SENTINEL").send({ name: "Sentinel" }).expect(200);
+      await H().post("/tickets").send({ schoolCode: "SENTINEL" }).expect(404);
+      await H().patch("/admin/schools/SENTINEL/enabled").send({ enabled: true }).expect(200);
+      expect((await H().get("/schools").expect(200)).body.length).toBe(1);
+    });
+    it("records school membership on ticket and lists users per school + user profile", async () => {
+      store.user_riderCCCCCCCCC = { id: "user_riderCCCCCCCCC", firstName: "Ri", privateMetadata: {} };
+      identity.authenticate.mockResolvedValue({ id: "user_riderCCCCCCCCC", firstName: "Ri", privateMetadata: {}, imageUrl: "" });
+      await H().post("/tickets").send({ schoolCode: "SENTINEL" }).expect(201);
+      await H().get("/admin/schools/SENTINEL/users").expect(403);
+      asAdmin();
+      const list = await H().get("/admin/schools/SENTINEL/users").expect(200);
+      expect(list.body.map((u: any) => u.id)).toContain("user_riderCCCCCCCCC");
+      expect(list.body.find((u: any) => u.id === "user_riderCCCCCCCCC").schoolAdmin).toBe(false);
+      const p = await H().get("/admin/users/user_riderCCCCCCCCC").expect(200);
+      expect(p.body.schools[0]).toMatchObject({ schoolCode: "SENTINEL", used: true, schoolAdmin: false });
+      await H().get("/admin/users/not-an-id").expect(400);
+      await H().get("/admin/schools/NOPE/users").expect(404);
     });
   });
   it("rejects forged Clerk session at auth service boundary", async () => {

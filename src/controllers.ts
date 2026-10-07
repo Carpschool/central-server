@@ -22,7 +22,7 @@ import { SettingsService } from "./settings";
 import { ClerkGuard, AdminGuard } from "./auth";
 import { SigningService } from "./security";
 import { RegistryService } from "./registry";
-import { HeartbeatDto, OnboardDto, TicketDto, TrustDto, SchoolUpdateDto, AdminFlagDto, ClaimDto, CentralSettingsDto } from "./dto";
+import { HeartbeatDto, OnboardDto, TicketDto, EnabledDto, AdminFlagDto, ClaimDto, CentralSettingsDto } from "./dto";
 import { AdminsService } from "./admins";
 @ApiTags("central")
 @Controller()
@@ -32,6 +32,7 @@ export class CentralController {
     private signing: SigningService,
     private admins: AdminsService,
     private settings: SettingsService,
+    @InjectModel("User") private userDocs: Model<any>,
   ) {}
   @Get("admin/settings")
   @ApiBearerAuth()
@@ -60,7 +61,7 @@ export class CentralController {
   }
   @Get("schools") async schools() {
     return this.registry.schools
-      .find({ trusted: true })
+      .find({ trusted: true, enabled: { $ne: false } })
       .select("_id schoolCode name domains baseUrl lastHeartbeat")
       .lean();
   }
@@ -76,17 +77,39 @@ export class CentralController {
   onboard(@Body() dto: OnboardDto) {
     return this.registry.onboard(dto.baseUrl);
   }
-  @Patch("admin/schools/:schoolCode/trust")
+  @Patch("admin/schools/:schoolCode/enabled")
   @ApiBearerAuth()
   @UseGuards(ClerkGuard, AdminGuard)
-  trust(@Param("schoolCode") code: string, @Body() dto: TrustDto) {
-    return this.registry.trust(code, dto.trusted);
+  async setEnabled(@Param("schoolCode") code: string, @Body() dto: EnabledDto) {
+    const s = await this.registry.schools.findOneAndUpdate({ schoolCode: code }, { enabled: dto.enabled }, { new: true }).lean();
+    if (!s) throw new NotFoundException("School not found");
+    return s;
   }
-  @Patch("admin/schools/:schoolCode")
+  // School settings belong to school admins; network admins only see who uses a school and who administers it.
+  @Get("admin/schools/:schoolCode/users")
   @ApiBearerAuth()
   @UseGuards(ClerkGuard, AdminGuard)
-  updateSchool(@Param("schoolCode") code: string, @Body() dto: SchoolUpdateDto) {
-    return this.registry.update(code, dto);
+  async schoolUsers(@Param("schoolCode") code: string) {
+    const s: any = await this.registry.schools.findOne({ schoolCode: code }).lean();
+    if (!s) throw new NotFoundException("School not found");
+    const ids = (await this.userDocs.find({ schools: String(s._id) }).select("clerkId").limit(500).lean()).map((u: any) => u.clerkId);
+    if (!ids.length) return [];
+    return (await this.admins.byIds(ids)).map((u) => ({ ...u, schoolAdmin: u.school?.[String(s._id)]?.admin === true }));
+  }
+  @Get("admin/users/:id")
+  @ApiBearerAuth()
+  @UseGuards(ClerkGuard, AdminGuard)
+  async user(@Param("id") id: string) {
+    const profile = await this.admins.one(id);
+    const doc: any = await this.userDocs.findOne({ clerkId: id }).lean();
+    const ids = [...new Set([...(doc?.schools ?? []), ...Object.keys(profile.school)])].filter((x) => /^[a-f0-9]{24}$/i.test(x));
+    const schools = await this.registry.schools.find({ _id: { $in: ids } }).select("_id schoolCode name baseUrl enabled").lean();
+    return {
+      ...profile,
+      firstSeen: doc?.createdAt ?? null,
+      lastSeen: doc?.updatedAt ?? null,
+      schools: schools.map((s: any) => ({ ...s, used: (doc?.schools ?? []).includes(String(s._id)), schoolAdmin: profile.school[String(s._id)]?.admin === true })),
+    };
   }
   @Get("admin/users")
   @ApiBearerAuth()
@@ -112,15 +135,22 @@ export class CentralController {
     const school = await this.registry.schools.findOne({
       schoolCode: dto.schoolCode,
       trusted: true,
+      enabled: { $ne: false },
     });
-    if (!school) throw new NotFoundException("Trusted school not found");
+    if (!school) throw new NotFoundException("School not found or disabled");
     const user = req.identity;
+    await this.userDocs.updateOne(
+      { clerkId: user.id },
+      { $addToSet: { schools: school._id.toString() }, $set: { name: [user.firstName, user.lastName].filter(Boolean).join(" "), avatar: user.imageUrl || "" } },
+      { upsert: true },
+    );
     const admin =
       user.privateMetadata?.school?.[school._id.toString()]?.admin === true;
     return this.signing.issue(
       user.id,
       school.schoolCode,
       admin,
+      user.privateMetadata?.admin === true,
       user.imageUrl || "",
       [user.firstName, user.lastName].filter(Boolean).join(" "),
     );
