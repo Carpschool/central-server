@@ -11,6 +11,7 @@ import { createLocalJWKSet, jwtVerify, SignJWT, generateKeyPair } from "jose";
 import { Webhook } from "svix";
 import { AppModule } from "./app.module";
 import { IdentityService } from "./auth";
+import { ClerkUsers } from "./admins";
 import { SchoolSchema, ReplaySchema } from "./models";
 import { publicAddress, SigningService, publicJson } from "./security";
 
@@ -24,6 +25,15 @@ describe("central trust boundary", () => {
     privateKey: any,
     folder: string;
   const identity = { authenticate: jest.fn() };
+  const store: Record<string, any> = {};
+  const fakeUsers = {
+    get: async (id: string) => {
+      if (!store[id]) throw new Error("404");
+      return store[id];
+    },
+    list: async () => ({ data: Object.values(store) }),
+    setPrivate: async (id: string, pm: any) => ((store[id].privateMetadata = pm), store[id]),
+  };
   beforeAll(async () => {
     mongo = await MongoMemoryServer.create();
     folder = mkdtempSync(tmpdir() + "/central-test-");
@@ -48,6 +58,8 @@ describe("central trust boundary", () => {
     const module = await Test.createTestingModule({ imports: [AppModule] })
       .overrideProvider(IdentityService)
       .useValue(identity)
+      .overrideProvider(ClerkUsers)
+      .useValue(fakeUsers)
       .compile();
     app = module.createNestApplication({ rawBody: true });
     app.useGlobalPipes(
@@ -96,6 +108,60 @@ describe("central trust boundary", () => {
       privateMetadata: { admin: true },
     });
     await request(app.getHttpServer()).get("/admin/schools").expect(200);
+  });
+  describe("admin management", () => {
+    const H = () => request(app.getHttpServer());
+    const asAdmin = () =>
+      identity.authenticate.mockResolvedValue({ id: "user_adminAAAAAAAA", privateMetadata: { admin: true } });
+    beforeEach(() => {
+      store.user_adminAAAAAAAA = { id: "user_adminAAAAAAAA", firstName: "Ad", privateMetadata: { admin: true } };
+      store.user_targetBBBBBBBB = { id: "user_targetBBBBBBBB", firstName: "Tg", privateMetadata: { keep: 1 } };
+    });
+    it("non-admins cannot manage users or schools", async () => {
+      identity.authenticate.mockResolvedValue({ id: "user_x", privateMetadata: { admin: "true", school: {} } });
+      await H().get("/admin/users").expect(403);
+      await H().put("/admin/users/user_targetBBBBBBBB/admin").send({ admin: true }).expect(403);
+      await H().put(`/admin/users/user_targetBBBBBBBB/schools/${school._id}/admin`).send({ admin: true }).expect(403);
+      await H().patch("/admin/schools/SENTINEL").send({ name: "Pwned" }).expect(403);
+      expect(store.user_targetBBBBBBBB.privateMetadata.admin).toBeUndefined();
+    });
+    it("grants and revokes central admin, cannot self-demote", async () => {
+      asAdmin();
+      const r = await H().put("/admin/users/user_targetBBBBBBBB/admin").send({ admin: true }).expect(200);
+      expect(r.body.admin).toBe(true);
+      expect(store.user_targetBBBBBBBB.privateMetadata).toEqual({ keep: 1, admin: true, school: {} });
+      await H().put("/admin/users/user_targetBBBBBBBB/admin").send({ admin: false }).expect(200);
+      expect(store.user_targetBBBBBBBB.privateMetadata.admin).toBe(false);
+      await H().put("/admin/users/user_adminAAAAAAAA/admin").send({ admin: false }).expect(400);
+      await H().put("/admin/users/user_targetBBBBBBBB/admin").send({ admin: "yes" }).expect(400);
+      await H().put("/admin/users/user_missingCCCCCCCC/admin").send({ admin: true }).expect(404);
+    });
+    it("assigns and removes school admin keyed by school id", async () => {
+      asAdmin();
+      const id = String(school._id);
+      const r = await H().put(`/admin/users/user_targetBBBBBBBB/schools/${id}/admin`).send({ admin: true }).expect(200);
+      expect(r.body.school).toEqual({ [id]: { admin: true } });
+      expect(store.user_targetBBBBBBBB.privateMetadata.school[id]).toEqual({ admin: true });
+      await H().put(`/admin/users/user_targetBBBBBBBB/schools/${id}/admin`).send({ admin: false }).expect(200);
+      expect(store.user_targetBBBBBBBB.privateMetadata.school[id]).toBeUndefined();
+      await H().put("/admin/users/user_targetBBBBBBBB/schools/aaaaaaaaaaaaaaaaaaaaaaaa/admin").send({ admin: true }).expect(404);
+      const list = await H().get("/admin/users?q=Tg").expect(200);
+      expect(list.body.find((u: any) => u.id === "user_targetBBBBBBBB")).toBeTruthy();
+    });
+    it("edits school name/domains with validation", async () => {
+      asAdmin();
+      const r = await H().patch("/admin/schools/SENTINEL").send({ name: "Sentinel Secondary", domains: ["EDU.example", "edu.example"] }).expect(200);
+      expect(r.body.name).toBe("Sentinel Secondary");
+      expect(r.body.domains).toEqual(["edu.example"]);
+      await H().patch("/admin/schools/SENTINEL").send({ domains: ["bad domain"] }).expect(400);
+      await H().patch("/admin/schools/SENTINEL").send({ baseUrl: "http://insecure.example" }).expect(400);
+      await H().patch("/admin/schools/SENTINEL").send({ trusted: false }).expect(400);
+      await H().patch("/admin/schools/NOPE").send({ name: "x y" }).expect(404);
+      await H().patch("/admin/schools/SENTINEL/trust").send({ trusted: false }).expect(200);
+      expect((await H().get("/schools").expect(200)).body.length).toBe(0);
+      await H().patch("/admin/schools/SENTINEL/trust").send({ trusted: true }).expect(200);
+      await H().patch("/admin/schools/SENTINEL").send({ name: "Sentinel" }).expect(200);
+    });
   });
   it("rejects forged Clerk session at auth service boundary", async () => {
     const real = new IdentityService();
