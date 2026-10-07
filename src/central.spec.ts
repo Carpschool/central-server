@@ -14,8 +14,13 @@ import { IdentityService } from "./auth";
 import { ClerkUsers } from "./admins";
 import { SchoolSchema, ReplaySchema } from "./models";
 import { publicAddress, SigningService, publicJson } from "./security";
+import * as security from "./security";
+import { setDataDir } from "./config";
+import { SettingsService } from "./settings";
+import { readFileSync, existsSync } from "node:fs";
 
 jest.setTimeout(120000);
+const WH = "whsec_" + Buffer.from("test-webhook-secret-32-bytes-long!").toString("base64");
 describe("central trust boundary", () => {
   let mongo: MongoMemoryServer,
     app: any,
@@ -44,17 +49,8 @@ describe("central trust boundary", () => {
       privateKey.export({ format: "pem", type: "pkcs8" }),
       { mode: 0o600 },
     );
-    Object.assign(process.env, {
-      MONGO_URI: mongo.getUri(),
-      CLERK_SECRET_KEY: "sk_test_placeholder",
-      CLERK_AUTHORIZED_PARTIES: "https://app.example",
-      CENTRAL_ISSUER: "https://central.example",
-      SIGNING_KEY_FILE: folder + "/key.pem",
-      SIGNING_KEY_ID: "test-key",
-      CLERK_WEBHOOK_SECRET:
-        "whsec_" +
-        Buffer.from("test-webhook-secret-32-bytes-long!").toString("base64"),
-    });
+    Object.assign(process.env, { MONGO_URI: mongo.getUri(), CLERK_SECRET_KEY: "sk_test_placeholder" });
+    setDataDir(folder + "/data");
     const module = await Test.createTestingModule({ imports: [AppModule] })
       .overrideProvider(IdentityService)
       .useValue(identity)
@@ -66,6 +62,7 @@ describe("central trust boundary", () => {
       new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true }),
     );
     await app.init();
+    await app.get(SettingsService).update({ publicUrl: "https://central.example", corsOrigins: ["https://app.example"], webhookSecret: WH });
     conn = await createConnection(mongo.getUri()).asPromise();
     schools = conn.model("School", SchoolSchema);
     const replay = conn.model("Replay", ReplaySchema);
@@ -165,7 +162,7 @@ describe("central trust boundary", () => {
     });
   });
   it("rejects forged Clerk session at auth service boundary", async () => {
-    const real = new IdentityService();
+    const real = new IdentityService(app.get(SettingsService));
     await expect(real.authenticate("Bearer mock_admin")).rejects.toThrow(
       "Invalid Clerk session",
     );
@@ -201,7 +198,7 @@ describe("central trust boundary", () => {
     expect(payload.sub).toBe("user_a");
     expect(payload.exp - payload.iat).toBe(900);
     expect(payload.jti).toBeTruthy();
-    expect(protectedHeader.kid).toBe("test-key");
+    expect(protectedHeader.kid).toBe(jwks.body.keys[0].kid);
     await expect(
       jwtVerify(res.body.ticket, createLocalJWKSet(jwks.body), {
         audience: "OTHER",
@@ -275,7 +272,7 @@ describe("central trust boundary", () => {
     });
     const id = "msg_test123";
     const date = new Date();
-    const signature = new Webhook(process.env.CLERK_WEBHOOK_SECRET).sign(
+    const signature = new Webhook(WH).sign(
       id,
       date,
       payload,
@@ -292,11 +289,51 @@ describe("central trust boundary", () => {
       (await conn.collection("users").findOne({ clerkId: "user_cache" })).name,
     ).toBe("Cached");
   });
-  it("fails on missing persistent key", async () => {
-    const original = process.env.SIGNING_KEY_FILE;
-    process.env.SIGNING_KEY_FILE = folder + "/missing";
-    await expect(new SigningService().onModuleInit()).rejects.toThrow();
-    process.env.SIGNING_KEY_FILE = original;
+  it("signing key is generated once on the data volume and stable", async () => {
+    expect(existsSync(folder + "/data/signing.pem")).toBe(true);
+    const before = (await request(app.getHttpServer()).get("/.well-known/jwks.json")).body.keys[0];
+    const s = new SigningService(app.get(SettingsService));
+    await s.onModuleInit();
+    expect(s.jwks().keys[0].kid).toBe(before.kid);
+  });
+  it("settings: admin-only, webhook secret write-only, origins validated", async () => {
+    identity.authenticate.mockResolvedValue({ privateMetadata: {} });
+    await request(app.getHttpServer()).get("/admin/settings").expect(403);
+    identity.authenticate.mockResolvedValue({ privateMetadata: { admin: true } });
+    const g = await request(app.getHttpServer()).get("/admin/settings").expect(200);
+    expect(g.body.webhookSecret).toBeUndefined();
+    expect(g.body.webhookSecretSet).toBe(true);
+    await request(app.getHttpServer()).put("/admin/settings").send({ corsOrigins: ["http://evil.example"] }).expect(400);
+    await request(app.getHttpServer()).put("/admin/settings").send({ publicUrl: "https://c.example/path" }).expect(400);
+    await request(app.getHttpServer()).put("/admin/settings").send({ webhookSecret: "nope" }).expect(400);
+    await request(app.getHttpServer()).put("/admin/settings").send({ extra: 1 }).expect(400);
+  });
+  it("Add school claim: signs assertion, verifies school key proof, registers trusted", async () => {
+    identity.authenticate.mockResolvedValue({ privateMetadata: { admin: true } });
+    const sk = generateKeyPairSync("ed25519");
+    let sent: any;
+    const spy = jest.spyOn(security, "publicJson").mockImplementation(async (url: URL, body: any) => {
+      if (url.pathname === "/setup/claim") {
+        sent = body;
+        return { schoolCode: "newsch", publicKey: sk.publicKey.export({ type: "spki", format: "pem" }), signature: sign(null, Buffer.from(body.nonce), sk.privateKey).toString("base64url") };
+      }
+      throw new Error("unexpected " + url);
+    });
+    const jwks = createLocalJWKSet((await request(app.getHttpServer()).get("/.well-known/jwks.json")).body);
+    const r = await request(app.getHttpServer()).post("/admin/schools/claim").send({ baseUrl: "https://new.example", code: "ABC1234", schoolCode: "newsch", name: "New School" }).expect(201);
+    expect(r.body.trusted).toBe(true);
+    expect(sent.code).toBe("abc1234");
+    const { payload } = await jwtVerify(sent.assertion, jwks, { issuer: "https://central.example", audience: "carpschool-setup" });
+    expect(payload.nonce).toBe(sent.nonce);
+    expect(payload.publicUrl).toBe("https://new.example");
+    expect(payload.name).toBe("New School");
+    // forged proof is rejected and nothing registered
+    spy.mockImplementation(async () => ({ schoolCode: "forged", publicKey: sk.publicKey.export({ type: "spki", format: "pem" }), signature: Buffer.alloc(64).toString("base64url") }));
+    await request(app.getHttpServer()).post("/admin/schools/claim").send({ baseUrl: "https://f.example", code: "abc1234", schoolCode: "forged", name: "Forged" }).expect(401);
+    expect(await schools.exists({ schoolCode: "forged" })).toBeNull();
+    await request(app.getHttpServer()).post("/admin/schools/claim").send({ baseUrl: "https://new.example", code: "abc1234", schoolCode: "newsch", name: "Dup" }).expect(409);
+    await request(app.getHttpServer()).post("/admin/schools/claim").send({ baseUrl: "https://x.example", code: "zz", schoolCode: "x1", name: "X" }).expect(400);
+    spy.mockRestore();
   });
 });
 describe("SSRF", () => {

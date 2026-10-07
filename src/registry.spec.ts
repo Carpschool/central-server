@@ -11,7 +11,7 @@ describe("registry onboarding", () => {
     publicKey: keys.publicKey.export({ type: "spki", format: "pem" }),
   };
   const schools = { create: jest.fn(async (value) => value) };
-  const registry = new RegistryService(schools as any, {} as any);
+  const registry = new RegistryService(schools as any, {} as any, {} as any);
   afterEach(() => jest.restoreAllMocks());
   it("requires signed nonce proof before trusting metadata", async () => {
     jest

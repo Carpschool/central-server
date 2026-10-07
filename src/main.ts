@@ -4,7 +4,8 @@ import { ConsoleLogger, ValidationPipe } from "@nestjs/common";
 import { SwaggerModule, DocumentBuilder } from "@nestjs/swagger";
 import helmet from "helmet";
 import { AppModule } from "./app.module";
-import { required, validateEnv } from "./config";
+import { validateEnv } from "./config";
+import { SettingsService } from "./settings";
 async function bootstrap() {
   validateEnv();
   const app = await NestFactory.create(AppModule, {
@@ -20,12 +21,15 @@ async function bootstrap() {
       transform: true,
     }),
   );
+  const settings = app.get(SettingsService);
+  await settings.get();
   app.enableCors({
-    origin: required("CLERK_AUTHORIZED_PARTIES")
-      .split(",")
-      .map((s) => s.trim()),
+    // Web origins live in DB settings (network admin edits them); 5s cache.
+    origin: (o, cb) => cb(null, !!o && settings.peek().corsOrigins.includes(o)),
     credentials: false,
   });
+  if (!(await settings.get()).publicUrl)
+    console.warn("Central publicUrl not set: run  node scripts/settings.mjs publicUrl=https://... corsOrigins=https://web...  (then edit in web)");
   SwaggerModule.setup(
     "docs",
     app,

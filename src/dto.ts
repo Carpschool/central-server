@@ -55,3 +55,15 @@ export class SchoolUpdateDto {
 export class AdminFlagDto {
   @ApiProperty() @IsBoolean() admin: boolean;
 }
+
+export class ClaimDto {
+  @ApiProperty() @IsUrl({ protocols: ["https"], require_protocol: true }) @MaxLength(2048) baseUrl: string;
+  @ApiProperty({ description: "7 hex chars from the school server log" }) @Matches(/^[0-9a-fA-F]{7}$/) code: string;
+  @ApiProperty() @Matches(/^[a-z0-9_-]{2,64}$/) schoolCode: string;
+  @ApiProperty() @IsString() @Length(2, 200) name: string;
+}
+export class CentralSettingsDto {
+  @ApiProperty({ required: false }) @IsOptional() @IsString() @MaxLength(2048) publicUrl?: string;
+  @ApiProperty({ required: false, type: [String] }) @IsOptional() @IsArray() @ArrayMaxSize(20) @IsString({ each: true }) @MaxLength(2048, { each: true }) corsOrigins?: string[];
+  @ApiProperty({ required: false, nullable: true, description: "write-only; null clears" }) @IsOptional() @IsString() @MaxLength(256) webhookSecret?: string | null;
+}
