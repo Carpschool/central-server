@@ -125,6 +125,14 @@ export class CentralController {
       throw new NotFoundException("School not found");
     return this.admins.setSchool(id, schoolId, dto.admin);
   }
+  /** School ids the signed-in user has opened, so a fresh browser can skip the school picker. */
+  @Get("me/schools")
+  @ApiBearerAuth()
+  @UseGuards(ClerkGuard)
+  async mySchools(@Req() req: any) {
+    const doc: any = await this.userDocs.findOne({ clerkId: req.identity.id }).select("schools").lean();
+    return { schools: doc?.schools ?? [] };
+  }
   @Post("heartbeats") heartbeat(@Body() dto: HeartbeatDto) {
     return this.registry.heartbeat(dto);
   }

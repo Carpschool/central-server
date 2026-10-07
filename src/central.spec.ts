@@ -166,6 +166,7 @@ describe("central trust boundary", () => {
       identity.authenticate.mockResolvedValue({ id: "user_riderCCCCCCCCC", firstName: "Ri", privateMetadata: {}, imageUrl: "" });
       await H().post("/tickets").send({ schoolCode: "SENTINEL" }).expect(201);
       await H().get("/admin/schools/SENTINEL/users").expect(403);
+      expect((await H().get("/me/schools").expect(200)).body.schools).toEqual([String(school._id)]);
       asAdmin();
       const list = await H().get("/admin/schools/SENTINEL/users").expect(200);
       expect(list.body.map((u: any) => u.id)).toContain("user_riderCCCCCCCCC");
