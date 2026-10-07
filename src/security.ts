@@ -137,9 +137,8 @@ export class SigningService implements OnModuleInit {
       .setExpirationTime(expires)
       .setJti(randomUUID());
   }
-  /** networkAdmin lets the school grant read-only access to its admin user view (nothing else). */
-  async issue(sub: string, schoolCode: string, schoolAdmin: boolean, networkAdmin: boolean, avatar: string, name: string) {
-    const ticket = await (await this.sign({ schoolAdmin, networkAdmin, avatar, name }, schoolCode, "15m")).setSubject(sub).sign(this.key);
+  async issue(sub: string, schoolCode: string, schoolAdmin: boolean, avatar: string, name: string) {
+    const ticket = await (await this.sign({ schoolAdmin, avatar, name }, schoolCode, "15m")).setSubject(sub).sign(this.key);
     return { ticket, expiresIn: 900 };
   }
   /** One-time setup assertion for a school's /setup/claim. */

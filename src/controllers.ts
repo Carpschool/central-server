@@ -150,7 +150,6 @@ export class CentralController {
       user.id,
       school.schoolCode,
       admin,
-      user.privateMetadata?.admin === true,
       user.imageUrl || "",
       [user.firstName, user.lastName].filter(Boolean).join(" "),
     );
