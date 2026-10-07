@@ -58,8 +58,8 @@ export async function publicJson(url: URL): Promise<any> {
       {
         method: "GET",
         agent: false,
-        lookup: (_host, _opts, cb: any) =>
-          cb(null, pinned.address, pinned.family),
+        lookup: (_host, opts: any, cb: any) =>
+          opts?.all ? cb(null, [pinned]) : cb(null, pinned.address, pinned.family),
         headers: { Accept: "application/json" },
       },
       (res) => {
