@@ -73,12 +73,6 @@ export class CentralController {
   users(@Query("q") q?: string) {
     return this.admins.list(typeof q === "string" ? q : undefined);
   }
-  @Put("admin/users/:id/admin")
-  @ApiBearerAuth()
-  @UseGuards(ClerkGuard, AdminGuard)
-  setCentralAdmin(@Req() req: any, @Param("id") id: string, @Body() dto: AdminFlagDto) {
-    return this.admins.setCentral(req.identity.id, id, dto.admin);
-  }
   @Put("admin/users/:id/schools/:schoolId/admin")
   @ApiBearerAuth()
   @UseGuards(ClerkGuard, AdminGuard)
