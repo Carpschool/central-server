@@ -1,45 +1,11 @@
 import { Module } from '@nestjs/common';
-import { ConfigModule, ConfigService } from '@nestjs/config';
+import { APP_GUARD } from '@nestjs/core';
 import { MongooseModule } from '@nestjs/mongoose';
-import { CryptoModule } from './modules/crypto/crypto.module';
-import { SchoolsModule } from './modules/schools/schools.module';
-import { AuthModule } from './modules/auth/auth.module';
-import { EmailModule } from './modules/email/email.module';
-import { MetaModule } from './modules/meta/meta.module';
-
-/**
- * AppModule
- * 
- * Root NestJS module for the Carpschool Central Authority Server.
- * Configures environment variables, connects to the isolated central_db MongoDB instance,
- * and aggregates feature modules.
- */
-@Module({
-  imports: [
-    // Global environment configuration
-    ConfigModule.forRoot({
-      isGlobal: true,
-      envFilePath: ['.env', '.env.local'],
-    }),
-
-    // Mongoose MongoDB connection (isolated internal container network, no auth)
-    MongooseModule.forRootAsync({
-      imports: [ConfigModule],
-      useFactory: async (configService: ConfigService) => ({
-        uri: configService.get<string>(
-          'MONGO_URI',
-          'mongodb://central-mongo:27017/central_db',
-        ),
-      }),
-      inject: [ConfigService],
-    }),
-
-    // Core domain modules
-    CryptoModule,
-    MetaModule,
-    SchoolsModule,
-    AuthModule,
-    EmailModule,
-  ],
-})
+import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
+import { CentralController, WebhookController } from './controllers';
+import { SchoolSchema, ReplaySchema, UserSchema } from './models';
+import { SigningService } from './security';
+import { RegistryService } from './registry';
+import { IdentityService, ClerkGuard, AdminGuard } from './auth';
+@Module({ imports: [MongooseModule.forRootAsync({ useFactory: () => ({ uri: process.env.MONGO_URI }) }), MongooseModule.forFeature([{ name: 'School', schema: SchoolSchema }, { name: 'Replay', schema: ReplaySchema }, { name: 'User', schema: UserSchema }]), ThrottlerModule.forRoot([{ ttl: 60000, limit: 60 }])], controllers: [CentralController, WebhookController], providers: [SigningService, RegistryService, IdentityService, ClerkGuard, AdminGuard, { provide: APP_GUARD, useClass: ThrottlerGuard }] })
 export class AppModule {}
