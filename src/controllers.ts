@@ -4,6 +4,8 @@ import {
   Get,
   Post,
   Patch,
+  Put,
+  Query,
   Param,
   Req,
   UseGuards,
@@ -19,13 +21,15 @@ import { required } from "./config";
 import { ClerkGuard, AdminGuard } from "./auth";
 import { SigningService } from "./security";
 import { RegistryService } from "./registry";
-import { HeartbeatDto, OnboardDto, TicketDto, TrustDto } from "./dto";
+import { HeartbeatDto, OnboardDto, TicketDto, TrustDto, SchoolUpdateDto, AdminFlagDto } from "./dto";
+import { AdminsService } from "./admins";
 @ApiTags("central")
 @Controller()
 export class CentralController {
   constructor(
     private registry: RegistryService,
     private signing: SigningService,
+    private admins: AdminsService,
   ) {}
   @Get("health") health() {
     return { ok: true };
@@ -56,6 +60,32 @@ export class CentralController {
   @UseGuards(ClerkGuard, AdminGuard)
   trust(@Param("schoolCode") code: string, @Body() dto: TrustDto) {
     return this.registry.trust(code, dto.trusted);
+  }
+  @Patch("admin/schools/:schoolCode")
+  @ApiBearerAuth()
+  @UseGuards(ClerkGuard, AdminGuard)
+  updateSchool(@Param("schoolCode") code: string, @Body() dto: SchoolUpdateDto) {
+    return this.registry.update(code, dto);
+  }
+  @Get("admin/users")
+  @ApiBearerAuth()
+  @UseGuards(ClerkGuard, AdminGuard)
+  users(@Query("q") q?: string) {
+    return this.admins.list(typeof q === "string" ? q : undefined);
+  }
+  @Put("admin/users/:id/admin")
+  @ApiBearerAuth()
+  @UseGuards(ClerkGuard, AdminGuard)
+  setCentralAdmin(@Req() req: any, @Param("id") id: string, @Body() dto: AdminFlagDto) {
+    return this.admins.setCentral(req.identity.id, id, dto.admin);
+  }
+  @Put("admin/users/:id/schools/:schoolId/admin")
+  @ApiBearerAuth()
+  @UseGuards(ClerkGuard, AdminGuard)
+  async setSchoolAdmin(@Param("id") id: string, @Param("schoolId") schoolId: string, @Body() dto: AdminFlagDto) {
+    if (!/^[a-f0-9]{24}$/i.test(schoolId) || !(await this.registry.schools.exists({ _id: schoolId })))
+      throw new NotFoundException("School not found");
+    return this.admins.setSchool(id, schoolId, dto.admin);
   }
   @Post("heartbeats") heartbeat(@Body() dto: HeartbeatDto) {
     return this.registry.heartbeat(dto);

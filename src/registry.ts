@@ -16,7 +16,8 @@ export class RegistryService {
     @InjectModel("School") public schools: Model<any>,
     @InjectModel("Replay") private replay: Model<any>,
   ) {}
-  async onboard(baseUrl: string) {
+  /** Fetch + validate school metadata and prove key possession via signed challenge. */
+  async verifyOrigin(baseUrl: string) {
     const origin = new URL(baseUrl);
     if (origin.pathname !== "/" || origin.search || origin.hash)
       throw new BadRequestException("School baseUrl must be an origin");
@@ -53,6 +54,10 @@ export class RegistryService {
     );
     if (!validSignature(meta.publicKey, nonce, challenge.signature))
       throw new UnauthorizedException("Challenge signature rejected");
+    return { meta, origin };
+  }
+  async onboard(baseUrl: string) {
+    const { meta, origin } = await this.verifyOrigin(baseUrl);
     try {
       return await this.schools.create({
         schoolCode: meta.schoolCode,
@@ -67,6 +72,26 @@ export class RegistryService {
         throw new ConflictException("School already registered");
       throw e;
     }
+  }
+  async update(
+    code: string,
+    patch: { name?: string; domains?: string[]; baseUrl?: string },
+  ) {
+    const school = await this.schools.findOne({ schoolCode: code });
+    if (!school) throw new NotFoundException();
+    const set: any = {};
+    if (patch.name !== undefined) set.name = patch.name.trim();
+    if (patch.domains !== undefined)
+      set.domains = [...new Set(patch.domains.map((d) => d.toLowerCase()))];
+    if (patch.baseUrl !== undefined) {
+      const { meta, origin } = await this.verifyOrigin(patch.baseUrl);
+      if (meta.schoolCode !== school.schoolCode || meta.publicKey !== school.publicKey)
+        throw new BadRequestException(
+          "New baseUrl must serve the same school code and signing key",
+        );
+      set.baseUrl = origin.origin;
+    }
+    return this.schools.findOneAndUpdate({ schoolCode: code }, set, { new: true });
   }
   async trust(code: string, trusted: boolean) {
     const school = await this.schools.findOneAndUpdate(

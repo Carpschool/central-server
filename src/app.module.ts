@@ -6,6 +6,7 @@ import { CentralController, WebhookController } from "./controllers";
 import { SchoolSchema, ReplaySchema, UserSchema } from "./models";
 import { SigningService } from "./security";
 import { RegistryService } from "./registry";
+import { AdminsService, ClerkUsers } from "./admins";
 import { IdentityService, ClerkGuard, AdminGuard } from "./auth";
 @Module({
   imports: [
@@ -23,6 +24,8 @@ import { IdentityService, ClerkGuard, AdminGuard } from "./auth";
   providers: [
     SigningService,
     RegistryService,
+    ClerkUsers,
+    AdminsService,
     IdentityService,
     ClerkGuard,
     AdminGuard,
