@@ -324,6 +324,19 @@ describe("central trust boundary", () => {
     await request(app.getHttpServer()).put("/admin/settings").send({ webhookSecret: "nope" }).expect(400);
     await request(app.getHttpServer()).put("/admin/settings").send({ extra: 1 }).expect(400);
   });
+  it("legal docs: public read, blank by default, admin-only write", async () => {
+    const h = app.getHttpServer();
+    expect((await request(h).get("/legal/tos").expect(200)).body.markdown).toBe("");
+    await request(h).get("/legal/other").expect(404);
+    identity.authenticate.mockResolvedValue({ privateMetadata: {} });
+    await request(h).put("/admin/legal/tos").send({ markdown: "x" }).expect(403);
+    identity.authenticate.mockResolvedValue({ privateMetadata: { admin: true } });
+    await request(h).put("/admin/legal/tos").send({ markdown: 5 }).expect(400);
+    await request(h).put("/admin/legal/nope").send({ markdown: "x" }).expect(404);
+    await request(h).put("/admin/legal/privacy").send({ markdown: "# Hi" }).expect(200);
+    expect((await request(h).get("/legal/privacy").expect(200)).body.markdown).toBe("# Hi");
+    expect((await request(h).get("/legal/tos").expect(200)).body.markdown).toBe("");
+  });
   it("Add school claim: signs assertion, verifies school key proof, registers trusted", async () => {
     identity.authenticate.mockResolvedValue({ privateMetadata: { admin: true } });
     const sk = generateKeyPairSync("ed25519");

@@ -4,7 +4,7 @@ import { MongooseModule } from "@nestjs/mongoose";
 import { ThrottlerGuard, ThrottlerModule } from "@nestjs/throttler";
 import { CentralController, WebhookController } from "./controllers";
 import { SchoolSchema, ReplaySchema, UserSchema } from "./models";
-import { SettingSchema, SettingsService } from "./settings";
+import { SettingSchema, SettingsService, LegalService } from "./settings";
 import { SigningService } from "./security";
 import { RegistryService } from "./registry";
 import { AdminsService, ClerkUsers } from "./admins";
@@ -25,6 +25,7 @@ import { IdentityService, ClerkGuard, AdminGuard } from "./auth";
   controllers: [CentralController, WebhookController],
   providers: [
     SettingsService,
+    LegalService,
     SigningService,
     RegistryService,
     ClerkUsers,

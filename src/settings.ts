@@ -59,3 +59,18 @@ export class SettingsService {
     return this.view();
   }
 }
+export const LEGAL_DOCS = ["tos", "privacy"] as const;
+export type LegalDoc = (typeof LEGAL_DOCS)[number];
+@Injectable()
+export class LegalService {
+  constructor(@InjectModel("Setting") private model: Model<any>) {}
+  async get(doc: LegalDoc) {
+    const d: any = await this.model.findOne({ key: "legal" }).lean();
+    const v = d?.value?.[doc];
+    return { doc, markdown: typeof v?.markdown === "string" ? v.markdown : "", updatedAt: v?.updatedAt ?? null };
+  }
+  async set(doc: LegalDoc, markdown: string) {
+    await this.model.updateOne({ key: "legal" }, { $set: { ["value." + doc]: { markdown, updatedAt: new Date().toISOString() } } }, { upsert: true });
+    return this.get(doc);
+  }
+}

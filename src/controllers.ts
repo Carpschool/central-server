@@ -18,11 +18,11 @@ import { Throttle } from "@nestjs/throttler";
 import { InjectModel } from "@nestjs/mongoose";
 import { Model } from "mongoose";
 import { Webhook } from "svix";
-import { SettingsService } from "./settings";
+import { SettingsService, LegalService, LEGAL_DOCS, LegalDoc } from "./settings";
 import { ClerkGuard, AdminGuard } from "./auth";
 import { SigningService } from "./security";
 import { RegistryService } from "./registry";
-import { HeartbeatDto, OnboardDto, TicketDto, EnabledDto, AdminFlagDto, ClaimDto, CentralSettingsDto } from "./dto";
+import { HeartbeatDto, OnboardDto, TicketDto, EnabledDto, AdminFlagDto, ClaimDto, CentralSettingsDto, LegalDto } from "./dto";
 import { AdminsService } from "./admins";
 @ApiTags("central")
 @Controller()
@@ -32,6 +32,7 @@ export class CentralController {
     private signing: SigningService,
     private admins: AdminsService,
     private settings: SettingsService,
+    private legal: LegalService,
     @InjectModel("User") private userDocs: Model<any>,
   ) {}
   @Get("admin/settings")
@@ -45,6 +46,17 @@ export class CentralController {
   @UseGuards(ClerkGuard, AdminGuard)
   putSettings(@Body() dto: CentralSettingsDto) {
     return this.settings.update(dto);
+  }
+  @Get("legal/:doc") legalDoc(@Param("doc") doc: string) {
+    if (!(LEGAL_DOCS as readonly string[]).includes(doc)) throw new NotFoundException();
+    return this.legal.get(doc as LegalDoc);
+  }
+  @Put("admin/legal/:doc")
+  @ApiBearerAuth()
+  @UseGuards(ClerkGuard, AdminGuard)
+  putLegal(@Param("doc") doc: string, @Body() dto: LegalDto) {
+    if (!(LEGAL_DOCS as readonly string[]).includes(doc)) throw new NotFoundException();
+    return this.legal.set(doc as LegalDoc, dto.markdown);
   }
   @Post("admin/schools/claim")
   @ApiBearerAuth()
