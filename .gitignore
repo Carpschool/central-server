@@ -23,3 +23,9 @@ logs
 *.njsproj
 *.sln
 *.sw?
+
+*.tsbuildinfo
+coverage/
+*.pem
+API_NOTES.md
+/data
