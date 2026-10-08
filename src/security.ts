@@ -125,6 +125,7 @@ export class SigningService implements OnModuleInit {
     const pub = await exportJWK(createPublicKey(this.key));
     this.jwk = { ...pub, kid: (await calculateJwkThumbprint(pub)).slice(0, 16), alg: "EdDSA", use: "sig" };
   }
+  async assertion(claims: Record<string, unknown>, audience: string, expires: string) { return (await this.sign(claims, audience, expires)).sign(this.key); }
   jwks() {
     return { keys: [this.jwk] };
   }

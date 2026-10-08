@@ -1,3 +1,4 @@
+import { GoogleMailerBroker, GoogleMailerBrokerController, GmailOAuthStateSchema } from "./google-mailer";
 import { Module } from "@nestjs/common";
 import { APP_GUARD } from "@nestjs/core";
 import { MongooseModule } from "@nestjs/mongoose";
@@ -16,14 +17,16 @@ import { IdentityService, ClerkGuard, AdminGuard } from "./auth";
     }),
     MongooseModule.forFeature([
       { name: "School", schema: SchoolSchema },
+      { name: "GmailOAuthState", schema: GmailOAuthStateSchema },
       { name: "Replay", schema: ReplaySchema },
       { name: "User", schema: UserSchema },
       { name: "Setting", schema: SettingSchema },
     ]),
     ThrottlerModule.forRoot([{ ttl: 60000, limit: 60 }]),
   ],
-  controllers: [CentralController, WebhookController],
+  controllers: [CentralController, WebhookController, GoogleMailerBrokerController],
   providers: [
+    GoogleMailerBroker,
     SettingsService,
     LegalService,
     SigningService,

@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync, chmodSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 /** Env holds ONLY these. Everything else lives in the DB (settings) or the data/ volume. */
-export const ENV_KEYS = ["PORT", "NODE_ENV", "MONGO_URI", "CLERK_PUBLISHABLE_KEY", "CLERK_SECRET_KEY"] as const;
+export const ENV_KEYS = ["PORT", "NODE_ENV", "MONGO_URI", "CLERK_PUBLISHABLE_KEY", "CLERK_SECRET_KEY", "GOOGLE_OAUTH_CLIENT_ID", "GOOGLE_OAUTH_CLIENT_SECRET"] as const;
 export function required(name: (typeof ENV_KEYS)[number]): string {
   const value = process.env[name]?.trim();
   if (!value) throw new Error("Missing required environment variable: " + name);
