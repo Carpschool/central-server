@@ -81,6 +81,17 @@ export class GoogleMailerBroker {
   }catch{/* No error bodies, tokens, authorization codes or credentials are surfaced. */}
   await this.states.deleteOne({_id:pending._id});return {url:redirect.href,cookieName:name};
  }
+ async revoke(body:unknown){
+  const {school,p}=await this.authenticate(body,'revoke');
+  try{
+   if(!text(p.encrypted,32768))throw new Error();
+   const payload=(await jwtDecrypt(p.encrypted,this.encryptionKey(),{keyManagementAlgorithms:['RSA-OAEP-256'],contentEncryptionAlgorithms:['A256GCM'],issuer:school.schoolCode,audience:await this.settings.issuer(),requiredClaims:['iat','exp','jti'],maxTokenAge:'5m'})).payload;
+   if(!text(payload.refreshToken,10000)||payload.requestId!==p.jti||payload.jti!==p.jti||!payload.iat||!payload.exp||payload.exp-payload.iat>300)throw new Error();
+   const response=await fetch('https://oauth2.googleapis.com/revoke',{method:'POST',redirect:'error',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams({token:payload.refreshToken}),signal:AbortSignal.timeout(15000)});
+   if(response.status!==200)throw new Error();
+   return {assertion:await this.assertion({requestId:p.jti,revoked:true},school.schoolCode)};
+  }catch{throw new ServiceUnavailableException('Google mailer revocation failed');}
+ }
  async refresh(body:unknown){
   const {school,p}=await this.authenticate(body,'refresh');
   try{
@@ -97,6 +108,7 @@ export class GoogleMailerBrokerController {
  constructor(readonly broker:GoogleMailerBroker){}
  @Get('key') @Header('Cache-Control','no-store') key(){return this.broker.key();}
  @Post('connect') @Header('Cache-Control','no-store') connect(@Body() b:unknown){return this.broker.connect(b);}
+ @Post('revoke') @Header('Cache-Control','no-store') revoke(@Body() b:unknown){return this.broker.revoke(b);}
  @Post('refresh') @Header('Cache-Control','no-store') refresh(@Body() b:unknown){return this.broker.refresh(b);}
  @Get('start') async start(@Query('ticket') ticket:unknown,@Res() res:any){const r=await this.broker.start(ticket);res.set({'Cache-Control':'no-store','Referrer-Policy':'no-referrer'});res.cookie(r.cookieName,r.browser,{secure:true,httpOnly:true,sameSite:'lax',maxAge:600000,path:'/mailer/google/callback'});res.redirect(303,r.url);}
  @Get('callback') async callback(@Query() q:any,@Req() req:any,@Res() res:any){const r=await this.broker.callback(q,req.headers.cookie||'');res.set({'Cache-Control':'no-store','Referrer-Policy':'no-referrer'});res.clearCookie(r.cookieName,{secure:true,httpOnly:true,sameSite:'lax',path:'/mailer/google/callback'});res.redirect(303,r.url);}
