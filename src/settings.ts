@@ -7,10 +7,8 @@ export type CentralSettings = {
   publicUrl: string;
   /** Web app origins: CORS + Clerk authorized parties. */
   corsOrigins: string[];
-  /** Svix secret for the Clerk webhook (write-only). */
-  webhookSecret: string;
 };
-const EMPTY: CentralSettings = { publicUrl: "", corsOrigins: [], webhookSecret: "" };
+const EMPTY: CentralSettings = { publicUrl: "", corsOrigins: [] };
 export function origin(u: string, allowHttpLocal = true): string {
   let url: URL;
   try { url = new URL(u); } catch { throw new BadRequestException("Invalid URL: " + u); }
@@ -27,7 +25,7 @@ export class SettingsService {
   async get(): Promise<CentralSettings> {
     if (this.cache && Date.now() - this.cache.at < 5000) return this.cache.v;
     const doc: any = await this.model.findOne({ key: "central" }).lean();
-    const v = { ...EMPTY, ...(doc?.value || {}) };
+    const v: CentralSettings = { publicUrl: doc?.value?.publicUrl ?? EMPTY.publicUrl, corsOrigins: doc?.value?.corsOrigins ?? EMPTY.corsOrigins };
     this.cache = { at: Date.now(), v };
     return v;
   }
@@ -39,22 +37,16 @@ export class SettingsService {
     return s.publicUrl;
   }
   async view() {
-    const { webhookSecret, ...rest } = await this.get();
-    return { ...rest, webhookSecretSet: !!webhookSecret };
+    return this.get();
   }
-  async update(patch: { publicUrl?: string; corsOrigins?: string[]; webhookSecret?: string | null }) {
+  async update(patch: { publicUrl?: string; corsOrigins?: string[] }) {
     const set: any = {};
     if (patch.publicUrl !== undefined) set["value.publicUrl"] = origin(patch.publicUrl);
     if (patch.corsOrigins !== undefined) {
       if (!Array.isArray(patch.corsOrigins) || patch.corsOrigins.length > 20) throw new BadRequestException("corsOrigins: up to 20 origins");
       set["value.corsOrigins"] = [...new Set(patch.corsOrigins.map((o) => origin(o)))];
     }
-    if (patch.webhookSecret === null) set["value.webhookSecret"] = "";
-    else if (patch.webhookSecret !== undefined) {
-      if (!/^whsec_[A-Za-z0-9+/=]{16,200}$/.test(patch.webhookSecret)) throw new BadRequestException("webhookSecret must look like whsec_...");
-      set["value.webhookSecret"] = patch.webhookSecret;
-    }
-    await this.model.updateOne({ key: "central" }, { $set: set }, { upsert: true });
+    await this.model.updateOne({ key: "central" }, { $set: set, $unset: { "value.webhookSecret": "" } }, { upsert: true });
     this.cache = undefined;
     return this.view();
   }

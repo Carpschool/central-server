@@ -65,7 +65,6 @@ export class ClaimDto {
 export class CentralSettingsDto {
   @ApiProperty({ required: false }) @IsOptional() @IsString() @MaxLength(2048) publicUrl?: string;
   @ApiProperty({ required: false, type: [String] }) @IsOptional() @IsArray() @ArrayMaxSize(20) @IsString({ each: true }) @MaxLength(2048, { each: true }) corsOrigins?: string[];
-  @ApiProperty({ required: false, nullable: true, description: "write-only; null clears" }) @IsOptional() @IsString() @MaxLength(256) webhookSecret?: string | null;
 }
 
 export class LegalDto {

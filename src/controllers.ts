@@ -186,7 +186,7 @@ export class WebhookController {
   @Post("clerk") async clerk(@Req() req: any) {
     let event: any;
     try {
-      const secret = (await this.settings.get()).webhookSecret;
+      const secret = process.env.CLERK_WEBHOOK_SECRET;
       if (!secret) throw new Error("no webhook secret");
       event = new Webhook(secret).verify(
         req.rawBody,

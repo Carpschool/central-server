@@ -50,7 +50,7 @@ describe("central trust boundary", () => {
       privateKey.export({ format: "pem", type: "pkcs8" }),
       { mode: 0o600 },
     );
-    Object.assign(process.env, { MONGO_URI: mongo.getUri(), CLERK_SECRET_KEY: "sk_test_placeholder" });
+    Object.assign(process.env, { MONGO_URI: mongo.getUri(), CLERK_SECRET_KEY: "sk_test_placeholder", CLERK_WEBHOOK_SECRET: WH });
     setDataDir(folder + "/data");
     const module = await Test.createTestingModule({ imports: [AppModule] })
       .overrideProvider(IdentityService)
@@ -63,7 +63,7 @@ describe("central trust boundary", () => {
       new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true }),
     );
     await app.init();
-    await app.get(SettingsService).update({ publicUrl: "https://central.example", corsOrigins: ["https://app.example"], webhookSecret: WH });
+    await app.get(SettingsService).update({ publicUrl: "https://central.example", corsOrigins: ["https://app.example"] });
     conn = await createConnection(mongo.getUri()).asPromise();
     schools = conn.model("School", SchoolSchema);
     const replay = conn.model("Replay", ReplaySchema);
@@ -312,13 +312,13 @@ describe("central trust boundary", () => {
     await s.onModuleInit();
     expect(s.jwks().keys[0].kid).toBe(before.kid);
   });
-  it("settings: admin-only, webhook secret write-only, origins validated", async () => {
+  it("settings: admin-only, webhook secret env-only, origins validated", async () => {
     identity.authenticate.mockResolvedValue({ privateMetadata: {} });
     await request(app.getHttpServer()).get("/admin/settings").expect(403);
     identity.authenticate.mockResolvedValue({ privateMetadata: { admin: true } });
     const g = await request(app.getHttpServer()).get("/admin/settings").expect(200);
     expect(g.body.webhookSecret).toBeUndefined();
-    expect(g.body.webhookSecretSet).toBe(true);
+    expect(g.body.webhookSecretSet).toBeUndefined();
     await request(app.getHttpServer()).put("/admin/settings").send({ corsOrigins: ["http://evil.example"] }).expect(400);
     await request(app.getHttpServer()).put("/admin/settings").send({ publicUrl: "https://c.example/path" }).expect(400);
     await request(app.getHttpServer()).put("/admin/settings").send({ webhookSecret: "nope" }).expect(400);
